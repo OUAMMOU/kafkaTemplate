@@ -1,0 +1,133 @@
+#!groovy
+@Library(value = ['icdc-jenkins-shared-library@main', 'pc5-jenkins-shared-library@4.0.0'], changelog = false) _
+
+import fr.icdc.dei.pc5.domain.git.GitConfig
+import fr.icdc.dei.pc5.params.BaseParams
+import fr.icdc.dei.pc5.params.ReleaseParams
+
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'jnlp'
+            yaml libraryResource('podTemplates/maven/maven-3.8-jdk17.yaml')
+        }
+    }
+
+    parameters {
+        // RELEASE
+        booleanParam(name: ReleaseParams.CREATE_FLAG, description: 'Indique s\'il convient de faire une release/x.x (créée une branche release si trigger à partir de develop)', defaultValue: false)
+        booleanParam(name: ReleaseParams.MUST_BUMP_MAJOR_NEXT_DEVELOP_VERSION, description: 'Indique s\'il convient d\'upgrade la version majeure de la prochaine version de dev (lors de la préparation d\'une release : CREATE_FLAG = true)', defaultValue: false)
+        booleanParam(name: BaseParams.DRY_RUN, description: 'Indique si on souhaite simuler les opérations de la release (CREATE_FLAG = true)', defaultValue: false)
+    }
+
+    options {
+        timeout(time: 45, unit: 'MINUTES')
+        buildDiscarder(logRotator(
+                // Nombre de build conservés
+                numToKeepStr: '5',
+                // Nombre de jours de conservation dans l'historique
+                daysToKeepStr: '5',
+                // Nombre de jours de conservation des artifacts
+                artifactDaysToKeepStr: '5',
+                // Nombre de build avec artifacts générés conservés
+                artifactNumToKeepStr: '5'))
+        skipDefaultCheckout()
+        disableConcurrentBuilds()
+        timestamps()
+        ansiColor('xterm')
+    }
+
+    stages {
+
+        stage('Checkout from VCS') {
+            steps {
+                gitCheckoutBranch()
+                bitbucketNotify state: 'INPROGRESS'
+            }
+        }
+
+        stage('Verify maven dependencies') {
+            when {
+                anyOf { changeRequest(); branch GitConfig.DEV_BRANCH_NAME }
+            }
+            steps {
+                container('maven') {
+                    mavenCheckDependencies failOnSnapshot: env.BRANCH_NAME == GitConfig.DEV_BRANCH_NAME
+                }
+            }
+        }
+
+        stage('Build Project') {
+            when {
+                expression { !params[(ReleaseParams.CREATE_FLAG)] }
+            }
+            steps {
+                container('maven') {
+                    mvnBuild()
+                }
+            }
+        }
+
+        stage('Test') {
+            when {
+                expression { !params[(ReleaseParams.CREATE_FLAG)] }
+            }
+            steps {
+                container('maven') {
+                    mvnTest()
+                }
+            }
+        }
+
+
+        stage('Publish Snapshots') {
+            when {
+                branch GitConfig.DEV_BRANCH_NAME
+                expression { !params[(ReleaseParams.CREATE_FLAG)] }
+            }
+            steps {
+                container('maven') {
+                    mvnDeploy()
+                }
+            }
+        }
+
+        stage('Release') {
+            when {
+                anyOf {
+                    expression { params[(ReleaseParams.CREATE_FLAG)] };
+                    expression { env.BRANCH_NAME ==~ /release\/(.*)/ }
+                }
+            }
+            steps {
+                container('maven') {
+                    script {
+                        if (env.BRANCH_NAME == GitConfig.DEV_BRANCH_NAME) {
+                            String releaseBranchName = mavenCreateReleaseBranch bumpNextDevMajorVersion: params[(ReleaseParams.MUST_BUMP_MAJOR_NEXT_DEVELOP_VERSION)] as boolean,
+                                    dryRun: params[(BaseParams.DRY_RUN)] as boolean
+                            if (releaseBranchName) {
+                                mavenTriggerReleaseJob releaseBranchName: releaseBranchName,
+                                        dryRun: params[(BaseParams.DRY_RUN)] as boolean, projectName: 'pc5-formations-avro-schema'
+                            }
+                        } else {
+                            mavenRelease dryRun: params[(BaseParams.DRY_RUN)] as boolean
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                bitbucketNotify()
+            }
+        }
+        failure {
+            script {
+                errorEmailNotify()
+            }
+        }
+    }
+
+}

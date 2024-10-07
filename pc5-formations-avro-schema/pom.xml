@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<artifactId>pom-parent</artifactId>
+		<groupId>fr.icdc.usine.pom.parent.pom</groupId>
+		<version>1</version>
+	</parent>
+
+	<groupId>fr.icdc.dei.dfp.mcf.pc5.formation</groupId>
+	<artifactId>pc5-formations-avro-schema</artifactId>
+	<version>0.2.0-SNAPSHOT</version>
+	<name>pc5-formations-avro-schema</name>
+	<description>pc5-formations-avro-schema</description>
+	<properties>
+
+		<!-- ============= -->
+		<!-- Configuration -->
+		<!-- ============= -->
+		<java.version>17</java.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+		<!-- SCM -->
+		<scm.local.path>pc5/pc5-formations-avro-schema.git</scm.local.path>
+		<scm.server>http://dlj2eeproda2018:10060/scm</scm.server>
+		<scm.server.anonymous>http://dlj2eeproda2018:10060/scm</scm.server.anonymous>
+
+		<!-- ========================== -->
+		<!-- Dépendances librairies PC5 -->
+		<!-- ========================== -->
+		<pc5-bom.version>4.0.2</pc5-bom.version>
+
+		<!-- =================== -->
+		<!-- Dépendances plugins -->
+		<!-- =================== -->
+		<maven-compiler-plugin.version>3.8.0</maven-compiler-plugin.version>
+
+		<!-- Warning : coherence avec io.confluent:common-parent#avro.version provenant du BOM -->
+		<confluent.version>7.1.1</confluent.version>
+		<avro.version>1.11.1</avro.version>
+		<schemaRegistryUrl>https://cp-schema-registry-in01-int.di.cdc.fr</schemaRegistryUrl>
+		<schemaRegistryBasicAuthUserInfo>svckf2-pc5-in01-4-formations:Xf.j63[ODu7!</schemaRegistryBasicAuthUserInfo>
+		<kafka.schema.topic.pc5-pattern>^in01.4.pc5.(.)+-(key|value)$</kafka.schema.topic.pc5-pattern>
+	</properties>
+	<scm>
+		<connection>scm:git:${scm.server}/${scm.local.path}</connection>
+		<developerConnection>scm:git:[push=]${scm.server}/${scm.local.path}[fetch=]${scm.server}/${scm.local.path}</developerConnection>
+		<url>${scm.server.anonymous}/${scm.local.path}</url>
+		<tag>HEAD</tag>
+	</scm>
+	<dependencies>
+		<dependency>
+			<groupId>io.confluent</groupId>
+			<artifactId>kafka-avro-serializer</artifactId>
+			<version>${confluent.version}</version>
+		</dependency>
+
+		<!-- AVRO -->
+		<dependency>
+			<groupId>org.apache.avro</groupId>
+			<artifactId>avro</artifactId>
+			<version>${avro.version}</version>
+		</dependency>
+	</dependencies>
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>io.confluent</groupId>
+				<artifactId>kafka-schema-registry-maven-plugin</artifactId>
+				<version>${confluent.version}</version>
+				<executions>
+					<execution>
+						<id>get-the-avro-schemas</id>
+						<phase>generate-sources</phase>
+						<goals>
+							<goal>download</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<configs>
+						<schema.registry.basic.auth.credentials.source>USER_INFO
+						</schema.registry.basic.auth.credentials.source>
+						<schema.registry.basic.auth.user.info>${schemaRegistryBasicAuthUserInfo}
+						</schema.registry.basic.auth.user.info>
+					</configs>
+					<schemaRegistryUrls>
+						<param>${schemaRegistryUrl}</param>
+					</schemaRegistryUrls>
+					<outputDirectory>target/avro</outputDirectory>
+					<subjectPatterns>
+						<composant>${kafka.schema.topic.pc5-pattern}</composant>
+					</subjectPatterns>
+					<subjects />
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.avro</groupId>
+				<artifactId>avro-maven-plugin</artifactId>
+				<version>1.10.0</version>
+				<executions>
+					<execution>
+						<phase>generate-sources</phase>
+						<goals>
+							<goal>schema</goal>
+						</goals>
+						<configuration>
+							<sourceDirectory>${project.basedir}/target/avro</sourceDirectory>
+							<outputDirectory>${project.basedir}/target/generated-sources/annotations</outputDirectory>
+							<stringType>String</stringType>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>${maven-compiler-plugin.version}</version>
+				<configuration>
+					<release>${java.version}</release>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
